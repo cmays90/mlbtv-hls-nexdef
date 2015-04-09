@@ -10,38 +10,39 @@
 
 #define AES128_KEY_SIZE			16
 #define MAX_STR_LEN				1024
-#define MLB_KEY_TYPE_AES128		1
 #define MLB_HLS_MAX_STREAMS		12
-#define MLB_MAX_IV_COUNT		800
-
-#define MLB_HLS_STATE_END		0
-#define MLB_HLS_STATE_LIVE		1
-#define MLB_HLS_STATE_BAD		2
+#define MLB_MAX_IV_COUNT		2000
 
 
-static const char *MLB_STATE_STRINGS[3] =
+#define MLB_KEY_TYPE_NONE		0
+#define MLB_KEY_TYPE_AES128		1
+
+
+#define MLB_HLS_STATE_END		1
+#define MLB_HLS_STATE_LIVE		2
+#define MLB_HLS_STATE_BAD		3
+
+static const char *MLB_STATE_STRINGS[4] =
 {
+	"",
 	"End of Playlist",
 	"Still Live",
 	"Invalid Playlist"
 };
 
-
 struct mlb_hls_iv_struct
 {
 	int pos;
 	uint8_t iv[AES128_KEY_SIZE];
-	uint8_t *aes;
 };
 typedef struct mlb_hls_iv_struct MLB_HLS_IV_STRUCT;
 
 struct mlb_hls_key
 {
-	int key_len_org;
-	int key_len_decoded;
-
-	uint8_t *key_decoded;
-	uint8_t *key_org;
+	int pos;
+	char key_url[MAX_STR_LEN];
+	uint8_t aes_key[AES128_KEY_SIZE];
+	uint8_t haz_aes;
 };
 typedef struct mlb_hls_key MLB_HLS_KEY;
 
@@ -57,9 +58,19 @@ struct mlb_opt_args
 	char base64_uri[MAX_STR_LEN];
 	int verbose;
 	int launch_wait;
+
+	uint32_t last_bps_time[255];
+	uint32_t last_bps_segcount_avg;
+	uint32_t last_bps_pos;
+
+	uint32_t start_from_user;
+
 	char launch_cmd[MAX_STR_LEN];
 	char cfg_file[MAX_STR_LEN];
 	char proxy_addr[MAX_STR_LEN];
+
+	char start_str[MAX_STR_LEN];
+
 };
 typedef struct mlb_opt_args MLB_OPT_ARGS;
 
@@ -69,13 +80,14 @@ struct mlb_hls_stream_url
 	CURL *key_curl;
 	CURLcode res;
 
-	uint8_t cache;
 	int8_t state;
 	uint8_t key_type;
-	uint8_t aes_key[AES128_KEY_SIZE];
 
 	int iv_count;
 	MLB_HLS_IV_STRUCT iv_keys[MLB_MAX_IV_COUNT];
+
+	int aes_key_count;
+	MLB_HLS_KEY aes_keys[50];
 
 	int line_pos;
 	int line_count;
@@ -108,6 +120,7 @@ struct mlb_hls_master_url
 	CURL *curl;
 	CURLcode res;
 
+	uint8_t force_playlist_refresh;
 	uint8_t do_loop;
 	uint32_t b64_decoded_len;
 	char b64_decoded[MAX_STR_LEN*2];
@@ -115,8 +128,11 @@ struct mlb_hls_master_url
 	char base_url[MAX_STR_LEN];
 	char master_url[MAX_STR_LEN];
 
-	uint8_t dec_key[AES128_KEY_SIZE];
+	uint8_t haz_aeskey;
+	uint8_t aeskey[AES128_KEY_SIZE];
 	char params[MAX_STR_LEN];
+
+	uint32_t start_from_playlist;
 
 	long stream_start_time;
 	int stream_count;
@@ -126,18 +142,15 @@ struct mlb_hls_master_url
 
 	int decrypted_size;
 	int decrypted_count;
+	double decrypted_time;
+
 	int current_seg_line;
-
 	int last_key_line;
-//	int key_line_spacing;
-
-
 	int seg_count;
-	long seg_ftime;
-	int seg_fspike;
-	int seg_fgood;
 
+	MLB_HLS_KEY *current_aeskey;
 	MLB_HLS_IV_STRUCT *current_iv;
+
 	MLB_HLS_STREAM_URL streams[MLB_HLS_MAX_STREAMS];
 
 	pthread_t url_thread;
@@ -158,7 +171,6 @@ struct mlb_url_pass
 {
 	MLB_HLS_MASTER_URL *parent;
 	MLB_HLS_STREAM_URL *stream;
-	MLB_HLS_IV_STRUCT *iv;
 
 	int write_size;
 	int write_pos;
@@ -166,6 +178,15 @@ struct mlb_url_pass
 };
 typedef struct mlb_url_pass MLB_URL_PASS;
 
+struct mlb_curl_mem
+{
+	size_t size;
+	char *data;
+};
+typedef struct mlb_curl_mem MLB_CURL_MEM;
+
 void mlb_master_add_stream(MLB_HLS_MASTER_URL *, char *, int);
+int mlb_get_url(char *, char **, char *proxy);
+size_t mlb_get_url_curl(char *, char **, char *proxy);
 
 #endif
